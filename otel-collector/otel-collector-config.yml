@@ -1,0 +1,52 @@
+# Optional OpenTelemetry Collector config.
+#
+# This is NOT on the metrics path used by the default dashboard — Prometheus scrapes
+# rag-service directly (see prometheus/prometheus.yml). This collector is here for the
+# common follow-on need: a target service that emits OTLP *traces* (or metrics) rather
+# than exposing its own /metrics endpoint.
+#
+# Enable with: docker compose --profile otel up -d
+# Then point your service's OTLP exporter at otel-collector:4317 (gRPC) or
+# otel-collector:4318 (HTTP).
+#
+# Traces alone don't have a backend wired up here (no Tempo/Jaeger in this stack, to
+# keep it focused) — the debug exporter below just logs received spans so you can
+# confirm the pipeline is wired correctly end to end. Swap the `debug` exporter for an
+# `otlp` exporter pointed at Tempo/Jaeger/etc. once you add a trace backend.
+#
+# The prometheus exporter below IS wired into the metrics path: it re-exposes
+# anything sent to the collector as OTLP metrics on :8889, which Prometheus scrapes
+# via the `otel-collector` job in prometheus/prometheus.yml.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  debug:
+    verbosity: basic
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Namespace keeps OTel-sourced metrics visibly distinct from metrics scraped
+    # directly off rag-service's own /metrics endpoint.
+    namespace: otel
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]

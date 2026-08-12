@@ -1,0 +1,124 @@
+# ------------------------------------------------------------------------------------
+# LLM Observability Stack
+#
+# Brings up Prometheus + Grafana (+ optional OTel Collector) on a shared Docker network
+# so it can scrape a sibling LLM/RAG service. Grafana is fully auto-provisioned: the
+# Prometheus datasource and the "LLM Overview" dashboard are loaded automatically on
+# first boot — no manual clicking required.
+#
+# To point this at your own service (instead of the default `rag-service:3000`), see
+# the "Pointing this at a different service" section in README.md and
+# prometheus/prometheus.yml.
+# ------------------------------------------------------------------------------------
+
+networks:
+  llm-observability:
+    name: llm-observability
+    driver: bridge
+    # Set this to `true` if you already have an external network (e.g. one created by
+    # the sibling rag-mlops-pipeline repo) that both stacks should share, and replace
+    # this block with:
+    #   external: true
+    #   name: <external-network-name>
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: llm-obs-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - llm-observability
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: llm-obs-grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      # Default credentials for local/demo use only. CHANGE THESE before deploying
+      # anywhere reachable outside your laptop.
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # Lets provisioned dashboards be edited in the UI without "provisioned dashboard,
+      # cannot save" friction during a demo. Remove for stricter GitOps-only setups.
+      - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=5s
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      # Exposed on 3001 (not 3000) so it doesn't collide with the sibling rag-service,
+      # which conventionally listens on 3000.
+      - "3001:3000"
+    networks:
+      - llm-observability
+
+  # Optional: OpenTelemetry Collector. Not required for the Prometheus/Grafana metrics
+  # path above (Prometheus scrapes rag-service directly). Enable this if the target
+  # service emits OTLP traces/metrics instead of exposing a /metrics endpoint, or if
+  # you want a single collection point that can fan out to multiple backends later.
+  #
+  # Start it with: docker compose --profile otel up -d
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: llm-obs-otel-collector
+    restart: unless-stopped
+    profiles:
+      - otel
+    command:
+      - "--config=/etc/otel-collector-config.yml"
+    volumes:
+      - ./otel-collector/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus exporter endpoint (scraped by prometheus service)
+    networks:
+      - llm-observability
+
+  # Optional: tiny companion exporter that turns `rag_tokens_generated_total` into an
+  # estimated USD cost metric. See exporter/cost_exporter.py and README.md for why this
+  # lives outside Grafana instead of as a pure dashboard expression.
+  #
+  # Start it with: docker compose --profile cost up -d
+  cost-exporter:
+    build:
+      context: ./exporter
+    container_name: llm-obs-cost-exporter
+    restart: unless-stopped
+    profiles:
+      - cost
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+      - COST_PER_1K_TOKENS=0.01
+      - SCRAPE_INTERVAL_SECONDS=15
+      - EXPORTER_PORT=9105
+    ports:
+      - "9105:9105"
+    networks:
+      - llm-observability
+    depends_on:
+      prometheus:
+        condition: service_healthy

@@ -1,0 +1,22 @@
+# Auto-provisions the Prometheus datasource in Grafana on container start — no manual
+# "Add data source" click-through required. Grafana reads every *.yml file under
+# /etc/grafana/provisioning/datasources/ at boot.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+
+# If you delete this datasource from a previous provisioning run and want the removal
+# to stick across restarts, list it here instead:
+# deleteDatasources:
+#   - name: Prometheus
+#     orgId: 1

@@ -1,0 +1,16 @@
+# Auto-provisions dashboards from grafana/dashboards/*.json — Grafana loads these on
+# boot and keeps polling for changes, so editing a JSON file on disk and refreshing the
+# browser is enough during development; no export/import through the UI is needed.
+apiVersion: 1
+
+providers:
+  - name: "llm-observability"
+    orgId: 1
+    folder: "LLM Observability"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

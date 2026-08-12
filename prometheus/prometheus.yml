@@ -1,0 +1,82 @@
+# Prometheus scrape configuration for the LLM Observability Stack.
+#
+# By default this scrapes a sibling service named `rag-service` on port 3000, at the
+# path `/metrics`, on the shared `llm-observability` Docker network defined in
+# docker-compose.yml. That matches the companion `rag-mlops-pipeline` repo's
+# Prometheus client instrumentation.
+#
+# ------------------------------------------------------------------------------------
+# Pointing this at a DIFFERENT service
+# ------------------------------------------------------------------------------------
+# This file is not hardcoded to only work with rag-mlops-pipeline. To scrape your own
+# service instead:
+#
+#   1. Simplest: edit the `targets` list under the `rag-service` job below to your
+#      container's `<name>:<port>` (it must be reachable on the same Docker network —
+#      see the `llm-observability` network in docker-compose.yml) or a host:port if
+#      you're scraping something outside Docker (use `host.docker.internal:<port>` on
+#      Docker Desktop for macOS/Windows).
+#
+#   2. If your metrics path isn't `/metrics`, add a `metrics_path:` line to the job.
+#
+#   3. For multiple services or environments without editing this file each time, swap
+#      the inline `static_configs` block for file-based service discovery:
+#
+#        - job_name: "rag-service"
+#          file_sd_configs:
+#            - files: ["/etc/prometheus/targets/*.json"]
+#              refresh_interval: 30s
+#
+#      ...and drop one or more JSON files like:
+#        [{"targets": ["rag-service:3000"], "labels": {"env": "local"}}]
+#      into a mounted `prometheus/targets/` directory. This lets you add/remove scrape
+#      targets without restarting Prometheus or editing this config.
+#
+#   4. The `RAG_SERVICE_TARGET` idea: if you'd rather drive the target from an
+#      environment variable at container-start time, template this file with
+#      `envsubst` (or a config-management tool) before mounting it, e.g.:
+#        scrape_configs:
+#          - job_name: "rag-service"
+#            static_configs:
+#              - targets: ["${RAG_SERVICE_TARGET:-rag-service:3000}"]
+#      Vanilla Prometheus does not expand env vars in its config file itself, so this
+#      requires a small entrypoint wrapper (`envsubst < prometheus.yml.tmpl > prometheus.yml`)
+#      if you want that without hand-editing.
+# ------------------------------------------------------------------------------------
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: llm-observability
+
+scrape_configs:
+  # Prometheus scraping itself — useful for confirming the stack is healthy and for a
+  # baseline "is monitoring monitoring itself" sanity panel.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # The target LLM/RAG service. Default assumes the sibling `rag-mlops-pipeline`
+  # container is named `rag-service` and exposes Prometheus-format metrics on :3000
+  # at /metrics. Change the target below (or switch to file_sd_configs per the notes
+  # above) to point this at any other service.
+  - job_name: "rag-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["rag-service:3000"]
+        labels:
+          service: "rag-service"
+
+  # Optional: scrape the OTel Collector's own Prometheus exporter endpoint, if you've
+  # enabled the otel-collector service (docker compose --profile otel up -d).
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # Optional: scrape the companion cost exporter, if enabled
+  # (docker compose --profile cost up -d). Its own metric (`estimated_cost_usd_total`)
+  # is what the "Estimated Cost" panel in the dashboard reads.
+  - job_name: "cost-exporter"
+    static_configs:
+      - targets: ["cost-exporter:9105"]

@@ -1,0 +1,23 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Grafana / Prometheus local data (bind-mounted volumes, if you switch from named
+# Docker volumes to host bind mounts during local dev)
+grafana-data/
+prometheus-data/
+data/grafana/
+data/prometheus/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp

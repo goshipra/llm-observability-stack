@@ -10,6 +10,26 @@ This is standard production monitoring practice (Prometheus scrape → Grafana
 dashboard, the same pattern used for any HTTP service) re-pointed at the metrics that
 actually matter for an LLM/RAG service instead of a generic web app.
 
+## Security & Pre-Commit Checks
+
+**This project has a ZERO-TOLERANCE policy for secrets, PII, or any security leaks.**
+
+Before every commit, run:
+
+```bash
+git diff --staged | grep -iE "(password|secret|token|key|credential|api)"
+```
+
+If anything matches, **do not commit**. See [`SECURITY.md`](SECURITY.md) for:
+- Complete pre-commit checklist (mandatory)
+- What counts as a leak (includes "tiny" ones)
+- How to fix if you accidentally commit a secret
+- Automated prevention (`.gitignore`, pre-commit hooks)
+- PII scanning patterns (email, phone, SSN)
+
+**Zero tolerance. Every commit must be safe. No exceptions.**
+
+
 ## Why observability for LLM/agent systems isn't optional
 
 Traditional service monitoring answers "is it up and is it fast." LLM and RAG systems
